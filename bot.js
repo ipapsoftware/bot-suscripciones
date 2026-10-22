@@ -6,7 +6,7 @@ const path = require('path');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;const bot = new TelegramBot(token, { polling: true });
 
-const ADMIN_ID = 0; // REEMPLAZÁ ESTE 0 POR TU USER ID
+const ADMIN_ID = 8586608023;
 
 const DB_PATH = path.join(__dirname, 'suscripciones.json');
 const USERS_PATH = path.join(__dirname, 'usuarios.json');
@@ -283,6 +283,33 @@ cron.schedule('0 9 * * *', () => {
     bot.sendMessage(s.chat_id, `⚠️ ALERTA DE SUSCRIPCIÓN\n\n📝 ${s.nombre}\n💰 Monto: ${montoTexto}\n📅 Se cobra en 2 días (día ${s.dia_cobro})`);
   });
   console.log(`Enviadas: ${subs.length}`);
+});
+
+// COMANDO SECRETO PARA ACTIVAR USUARIOS
+bot.onText(/\/activar (.+)/, (msg, match) => {
+    if (msg.from.id !== ADMIN_ID) {
+        return bot.sendMessage(msg.chat.id, "⛔ No tenés permisos.");
+    }
+    
+    const targetId = parseInt(match[1]);
+    const filePath = path.join(__dirname, 'usuarios.json');
+    let usuarios = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    
+    let userFound = false;
+    
+    if (Array.isArray(usuarios)) {
+        const index = usuarios.findIndex(u => u.id === targetId);
+        if (index !== -1) { usuarios[index].plan = 'premium'; userFound = true; }
+    } else {
+        if (usuarios[targetId]) { usuarios[targetId].plan = 'premium'; userFound = true; }
+    }
+
+    if (userFound) {
+        fs.writeFileSync(filePath, JSON.stringify(usuarios, null, 2));
+        bot.sendMessage(msg.chat.id, `✅ ¡Listo! El usuario ${targetId} ahora es PREMIUM.`);
+    } else {
+        bot.sendMessage(msg.chat.id, `❌ No encontré al usuario ${targetId}.`);
+    }
 });
 
 console.log('🤖 Bot iniciado...');
