@@ -286,3 +286,9 @@ cron.schedule('0 9 * * *', () => {
 });
 
 console.log('🤖 Bot iniciado...');
+// Puerto para Render (no afecta el bot de Telegram)
+const PORT = process.env.PORT || 3000;
+const express = require('express');
+const app = express();
+app.get('/', (req, res) => res.send('Bot de suscripciones activo ✅'));
+app.listen(PORT, () => console.log(`Servidor web corriendo en puerto ${PORT}`));
