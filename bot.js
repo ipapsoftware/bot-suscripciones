@@ -6,7 +6,8 @@ const path = require('path');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
-const bot = new TelegramBot(token, { polling: false });
+// Usamos polling true, es lo más estable para este caso
+const bot = new TelegramBot(token, { polling: true });
 
 const ADMIN_ID = 8586608023;
 
@@ -46,7 +47,6 @@ const tempData = new Map();
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  
   const usuarios = leerUsuarios();
   if (!usuarios[chatId]) {
     usuarios[chatId] = { plan: 'gratis', desde: new Date().toISOString(), total_creadas: 0 };
@@ -58,7 +58,7 @@ bot.onText(/\/start/, (msg) => {
   const totalCreadas = usuario.total_creadas || 0;
   
   const mensaje = `¡Hola! 👋 Soy tu asistente de alertas de suscripciones.\n\n` +
-    `⚠️ Aviso Legal: Este bot es una herramienta de recordatorio personal. No realiza cobros automáticos, no cancela suscripciones y no está afiliado a las marcas mencionadas. El usuario es el único responsable de la gestión de sus finanzas.\n\n` +
+    `⚠️ Aviso Legal: Este bot es una herramienta de recordatorio personal. No realiza cobros automáticos, no cancela suscripciones y no está afiliado a las marcas mencionadas.\n\n` +
     `📊 Tu plan actual: ${planEmoji} ${usuario.plan.toUpperCase()}\n` +
     `📌 Suscripciones creadas: ${totalCreadas} / ${LIMITES[usuario.plan]}\n\n` +
     `Elegí una opción:`;
@@ -78,25 +78,10 @@ bot.on('callback_query', (query) => {
   const data = query.data;
   
   if (data === 'info_bot') {
-    bot.sendMessage(chatId, 
-      "¿Qué hace este bot?\n\n" +
-      "Es un recordatorio que te avisa 2 días antes de que te cobren tus suscripciones, para que puedas cancelar a tiempo o continuar con ella sin sorpresas.\n\n" +
-      "✅ No pagamos ninguna suscripción por vos\n" +
-      "✅ No tenemos acceso a tus cuentas bancarias\n" +
-      "✅ Solo te enviamos un mensaje a Telegram"
-    );
+    bot.sendMessage(chatId, "Es un recordatorio que te avisa 2 días antes de que te cobren tus suscripciones.\n\n✅ No pagamos nada por vos\n✅ No tenemos acceso a tus cuentas\n✅ Solo te enviamos un mensaje a Telegram");
   } 
   else if (data === 'precios_bot') {
-    bot.sendMessage(chatId, 
-      "💰 Nuestros Planes:\n\n" +
-      "🟢 GRATIS - $0\n" +
-      "1 suscripción en total. Ideal para probar.\n\n" +
-      "🔵 MENSUAL - $2.500 ARS/mes\n" +
-      "Suscripciones ilimitadas + soporte prioritario.\n\n" +
-      "🟣 PREMIUM - $5.000 ARS (pago único)\n" +
-      "De por vida + todas las funciones.\n\n" +
-      "📲 Para activar un plan, escribinos a @NexusAyuda y te pasamos el link de pago de Mercado Pago."
-    );
+    bot.sendMessage(chatId, "💰 Nuestros Planes:\n\n🟢 GRATIS - $0 (1 suscripción)\n🔵 MENSUAL - $2.500 ARS/mes (Ilimitadas)\n🟣 PREMIUM - $5.000 ARS (De por vida, Ilimitadas)\n\n📲 Para activar, escribinos a @NexusAyuda");
   }
   else if (data === 'agregar_menu') {
     const usuarios = leerUsuarios();
@@ -104,10 +89,7 @@ bot.on('callback_query', (query) => {
     const totalCreadas = usuario.total_creadas || 0;
     
     if (totalCreadas >= LIMITES[usuario.plan]) {
-      bot.sendMessage(chatId, 
-        `⚠️ Llegaste al límite de tu plan ${usuario.plan} (${LIMITES[usuario.plan]} suscripción en total).\n\n` +
-        `💡 Si la borraste, ya consumiste tu oportunidad gratuita. Actualizá a Mensual o Premium para tener ilimitadas.`
-      );
+      bot.sendMessage(chatId, `⚠️ Llegaste al límite de tu plan ${usuario.plan}.\n💡 Actualizá a Mensual o Premium para tener ilimitadas.`);
       return;
     }
     mostrarMenuSuscripciones(chatId);
@@ -115,19 +97,16 @@ bot.on('callback_query', (query) => {
   else if (data === 'listar_menu') {
     const db = leerDB();
     const rows = db.filter(s => s.chat_id === chatId);
-    
     if (rows.length === 0) {
       bot.sendMessage(chatId, 'No tenés suscripciones. Usá "Agregar Suscripción".');
     } else {
       let msg = '📋 Tus suscripciones:\n\n';
       const keyboard = [];
-      
       rows.forEach(r => { 
         const montoTexto = r.monto > 0 ? `$${r.monto}` : '$';
         msg += `🆔 ${r.id} - ${r.nombre} (${montoTexto}) - Día ${r.dia_cobro}\n`;
         keyboard.push([{ text: `🗑️ Eliminar ${r.nombre}`, callback_data: `delete_${r.id}` }]);
       });
-      
       bot.sendMessage(chatId, msg, { reply_markup: { inline_keyboard: keyboard } });
     }
   }
@@ -135,44 +114,34 @@ bot.on('callback_query', (query) => {
     const id = parseInt(data.split('_')[1]);
     let db = leerDB();
     const nueva = db.filter(s => !(s.id === id && s.chat_id === chatId));
-    
     if (nueva.length === db.length) {
       bot.sendMessage(chatId, '❌ No encontrada.');
     } else {
       guardarDB(nueva);
-      bot.sendMessage(chatId, '✅ Eliminada. El recordatorio fue cancelado.\n\n⚠️ Nota: Si tenés el plan Gratis, ya consumiste tu única oportunidad.');
+      bot.sendMessage(chatId, '✅ Eliminada. El recordatorio fue cancelado.');
     }
   }
   else if (data.startsWith('select_')) {
     const index = parseInt(data.split('_')[1]);
     const sub = SUSCRIPCIONES_PREDEFINIDAS[index];
     if (!tempData.has(chatId)) tempData.set(chatId, {});
-    
     tempData.get(chatId).nombre = sub.nombre;
     tempData.get(chatId).monto = 0; 
     tempData.get(chatId).step = 'esperando_monto';
-    
     bot.sendMessage(chatId, `💰 ¿Cuánto pagás por ${sub.nombre}? (escribí solo el número)`);
   } 
-
-
-
   else if (data === 'custom') {
     if (!tempData.has(chatId)) tempData.set(chatId, {});
     tempData.get(chatId).step = 'custom_nombre';
     bot.sendMessage(chatId, '✏️ Escribí el nombre de la suscripción:');
   }
   else if (data === 'menu_principal') {
-    // Simulamos el comportamiento del /start para volver al inicio
     const usuarios = leerUsuarios();
     const usuario = usuarios[chatId] || { plan: 'gratis', total_creadas: 0 };
     const planEmoji = usuario.plan === 'premium' ? '🟣' : usuario.plan === 'mensual' ? '🔵' : '🟢';
     const totalCreadas = usuario.total_creadas || 0;
     
-    const mensaje = `🏠 Menú principal\n\n` +
-      `📊 Tu plan actual: ${planEmoji} ${usuario.plan.toUpperCase()}\n` +
-      `📌 Suscripciones creadas: ${totalCreadas} / ${LIMITES[usuario.plan]}\n\n` +
-      `Elegí una opción:`;
+    const mensaje = `🏠 Menú principal\n\n📊 Tu plan: ${planEmoji} ${usuario.plan.toUpperCase()}\n📌 Creadas: ${totalCreadas} / ${LIMITES[usuario.plan]}\n\nElegí una opción:`;
     
     bot.sendMessage(chatId, mensaje, {
       reply_markup: {
@@ -183,11 +152,8 @@ bot.on('callback_query', (query) => {
       }
     });
   }
-  
   bot.answerCallbackQuery(query.id);
 });
-
-
 
 function mostrarMenuSuscripciones(chatId) {
   const keyboard = [];
@@ -223,7 +189,7 @@ bot.on('message', (msg) => {
     }
     userData.monto = monto;
     userData.step = 'esperando_dia';
-    bot.sendMessage(chatId, '📅 ¿Qué día del mes te cobran? (escribí un número del 1 al 31)');
+    bot.sendMessage(chatId, '📅 ¿Qué día del mes te cobran? (1 al 31)');
     return;
   }
   
@@ -233,7 +199,6 @@ bot.on('message', (msg) => {
       bot.sendMessage(chatId, '❌ Día inválido. Escribí un número del 1 al 31.'); 
       return; 
     }
-    userData.dia = dia;
     
     const db = leerDB();
     const nuevaSub = {
@@ -251,11 +216,8 @@ bot.on('message', (msg) => {
     usuarios[chatId].total_creadas = (usuarios[chatId].total_creadas || 0) + 1;
     guardarUsuarios(usuarios);
 
-
-
-
-     const montoTexto = userData.monto > 0 ? `$${userData.monto}` : '$';
-    const mensajeExito = `✅ ¡Suscripción guardada!\n📝 Nombre: ${userData.nombre}\n💰 Monto: ${montoTexto}\n📅 Día de cobro: ${dia} de cada mes\n🆔 ID: ${nuevaSub.id}\n\nTe avisaré 2 días antes del cobro.\n\n¿Qué querés hacer ahora?`;
+    const montoTexto = userData.monto > 0 ? `$${userData.monto}` : '$';
+    const mensajeExito = `✅ ¡Suscripción guardada!\n📝 Nombre: ${userData.nombre}\n💰 Monto: ${montoTexto}\n📅 Día de cobro: ${dia}\n🆔 ID: ${nuevaSub.id}\n\nTe avisaré 2 días antes.`;
 
     bot.sendMessage(chatId, mensajeExito, {
         reply_markup: {
@@ -265,15 +227,12 @@ bot.on('message', (msg) => {
             ]
         }
     });
-    
     tempData.delete(chatId);
     return;
-
-
-
   }
 });
 
+// COMANDO DE ADMINISTRADOR (Activa Gratis, Mensual o Premium)
 bot.onText(/\/activar (\d+) (gratis|mensual|premium)/, (msg, match) => {
   const chatId = msg.chat.id;
   if (chatId !== ADMIN_ID) {
@@ -290,31 +249,10 @@ bot.onText(/\/activar (\d+) (gratis|mensual|premium)/, (msg, match) => {
   guardarUsuarios(usuarios);
   
   bot.sendMessage(chatId, `✅ Usuario ${userId} activado con plan ${plan.toUpperCase()}`);
-  bot.sendMessage(userId, `🎉 ¡Tu plan fue actualizado a ${plan.toUpperCase()}! Ya tenés acceso a suscripciones ilimitadas.`);
+  bot.sendMessage(userId, `🎉 ¡Tu plan fue actualizado a ${plan.toUpperCase()}!`);
 });
 
-bot.onText(/\/listar/, (msg) => {
-  const chatId = msg.chat.id;
-  const db = leerDB();
-  const rows = db.filter(s => s.chat_id === chatId);
-  if (rows.length === 0) { bot.sendMessage(chatId, 'No tenés suscripciones.'); return; }
-  let m = '📋 Tus suscripciones:\n\n';
-  rows.forEach(r => { 
-    const montoTexto = r.monto > 0 ? `$${r.monto}` : '$';
-    m += `🆔 ${r.id} - ${r.nombre} (${montoTexto}) - Día ${r.dia_cobro}\n`; 
-  });
-  bot.sendMessage(chatId, m);
-});
-
-bot.onText(/\/eliminar (\d+)/, (msg, match) => {
-  const chatId = msg.chat.id;
-  const id = parseInt(match[1]);
-  let db = leerDB();
-  const nueva = db.filter(s => !(s.id === id && s.chat_id === chatId));
-  if (nueva.length === db.length) bot.sendMessage(chatId, '❌ No encontrada.');
-  else { guardarDB(nueva); bot.sendMessage(chatId, '✅ Eliminada.'); }
-});
-
+// CRON: Revisar suscripciones todos los días a las 9 AM
 cron.schedule('0 9 * * *', () => {
   console.log('Revisando suscripciones...');
   const diaActual = new Date().getDate();
@@ -328,51 +266,13 @@ cron.schedule('0 9 * * *', () => {
   console.log(`Enviadas: ${subs.length}`);
 });
 
-// COMANDO SECRETO PARA ACTIVAR USUARIOS
-bot.onText(/\/activar (.+)/, (msg, match) => {
-    if (msg.from.id !== ADMIN_ID) {
-        return bot.sendMessage(msg.chat.id, "⛔ No tenés permisos.");
-    }
-    
-    const targetId = parseInt(match[1]);
-    const filePath = path.join(__dirname, 'usuarios.json');
-    let usuarios = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    
-    let userFound = false;
-    
-    if (Array.isArray(usuarios)) {
-        const index = usuarios.findIndex(u => u.id === targetId);
-        if (index !== -1) { usuarios[index].plan = 'premium'; userFound = true; }
-    } else {
-        if (usuarios[targetId]) { usuarios[targetId].plan = 'premium'; userFound = true; }
-    }
-
-    if (userFound) {
-        fs.writeFileSync(filePath, JSON.stringify(usuarios, null, 2));
-        bot.sendMessage(msg.chat.id, `✅ ¡Listo! El usuario ${targetId} ahora es PREMIUM.`);
-    } else {
-        bot.sendMessage(msg.chat.id, `❌ No encontré al usuario ${targetId}.`);
-    }
-});
-
-
-// Configuración de Webhook para Render
-const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL || `https://bot-suscripciones.onrender.com`;
-bot.setWebHook(`${WEBHOOK_URL}/bot${token}`);
-bot.onWebhookCallback('/bot' + token, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
-
-
-
-
 console.log('🤖 Bot iniciado...');
+
 // Puerto para Render (no afecta el bot de Telegram)
 const PORT = process.env.PORT || 3000;
 const express = require('express');
 const app = express();
 
 app.get('/', (req, res) => res.send('Bot de suscripciones activo ✅'));
-app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/health', (req, res) => res.status(200).send('OK')); // Para UptimeRobot
 app.listen(PORT, () => console.log(`Servidor web corriendo en puerto ${PORT}`));
