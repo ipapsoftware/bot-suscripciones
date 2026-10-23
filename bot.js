@@ -152,14 +152,40 @@ bot.on('callback_query', (query) => {
     
     bot.sendMessage(chatId, `💰 ¿Cuánto pagás por ${sub.nombre}? (escribí solo el número)`);
   } 
+
+
+
   else if (data === 'custom') {
     if (!tempData.has(chatId)) tempData.set(chatId, {});
     tempData.get(chatId).step = 'custom_nombre';
     bot.sendMessage(chatId, '✏️ Escribí el nombre de la suscripción:');
   }
+  else if (data === 'menu_principal') {
+    // Simulamos el comportamiento del /start para volver al inicio
+    const usuarios = leerUsuarios();
+    const usuario = usuarios[chatId] || { plan: 'gratis', total_creadas: 0 };
+    const planEmoji = usuario.plan === 'premium' ? '🟣' : usuario.plan === 'mensual' ? '🔵' : '🟢';
+    const totalCreadas = usuario.total_creadas || 0;
+    
+    const mensaje = `🏠 Menú principal\n\n` +
+      `📊 Tu plan actual: ${planEmoji} ${usuario.plan.toUpperCase()}\n` +
+      `📌 Suscripciones creadas: ${totalCreadas} / ${LIMITES[usuario.plan]}\n\n` +
+      `Elegí una opción:`;
+    
+    bot.sendMessage(chatId, mensaje, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'ℹ️ ¿Qué hace?', callback_data: 'info_bot' }, { text: '💰 Ver Planes', callback_data: 'precios_bot' }],
+          [{ text: '➕ Agregar Suscripción', callback_data: 'agregar_menu' }, { text: '📋 Mis Suscripciones', callback_data: 'listar_menu' }]
+        ]
+      }
+    });
+  }
   
   bot.answerCallbackQuery(query.id);
 });
+
+
 
 function mostrarMenuSuscripciones(chatId) {
   const keyboard = [];
@@ -222,12 +248,27 @@ bot.on('message', (msg) => {
     if (!usuarios[chatId]) usuarios[chatId] = { plan: 'gratis', total_creadas: 0 };
     usuarios[chatId].total_creadas = (usuarios[chatId].total_creadas || 0) + 1;
     guardarUsuarios(usuarios);
-    
-    const montoTexto = userData.monto > 0 ? `$${userData.monto}` : '$';
-    bot.sendMessage(chatId, `✅ ¡Suscripción guardada!\n📝 Nombre: ${userData.nombre}\n💰 Monto: ${montoTexto}\n📅 Día de cobro: ${dia} de cada mes\n🆔 ID: ${nuevaSub.id}\n\nTe avisaré 2 días antes del cobro.`);
+
+
+
+
+     const montoTexto = userData.monto > 0 ? `$${userData.monto}` : '$';
+    const mensajeExito = `✅ ¡Suscripción guardada!\n📝 Nombre: ${userData.nombre}\n💰 Monto: ${montoTexto}\n📅 Día de cobro: ${dia} de cada mes\n🆔 ID: ${nuevaSub.id}\n\nTe avisaré 2 días antes del cobro.\n\n¿Qué querés hacer ahora?`;
+
+    bot.sendMessage(chatId, mensajeExito, {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '➕ Agregar otra suscripción', callback_data: 'agregar_menu' }],
+                [{ text: '🏠 Menú principal', callback_data: 'menu_principal' }]
+            ]
+        }
+    });
     
     tempData.delete(chatId);
     return;
+
+
+
   }
 });
 
