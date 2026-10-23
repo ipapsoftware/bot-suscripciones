@@ -3,14 +3,12 @@ const TelegramBot = require('node-telegram-bot-api');
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
-
-// Usamos polling true, es lo más estable para este caso
-const bot = new TelegramBot(token, { polling: true });
+const PORT = process.env.PORT || 3000;
 
 const ADMIN_ID = 8586608023;
-
 const DB_PATH = path.join(__dirname, 'suscripciones.json');
 const USERS_PATH = path.join(__dirname, 'usuarios.json');
 
@@ -26,11 +24,7 @@ function leerUsuarios() {
 }
 function guardarUsuarios(data) { fs.writeFileSync(USERS_PATH, JSON.stringify(data, null, 2)); }
 
-const LIMITES = {
-  gratis: 1,       
-  mensual: 999,
-  premium: 999
-};
+const LIMITES = { gratis: 1, mensual: 999, premium: 999 };
 
 const SUSCRIPCIONES_PREDEFINIDAS = [
   { nombre: 'Netflix', monto: 0 },
@@ -45,6 +39,36 @@ const SUSCRIPCIONES_PREDEFINIDAS = [
 
 const tempData = new Map();
 
+// Crear bot SIN polling (usaremos webhook)
+const bot = new TelegramBot(token, { polling: false });
+
+// Servidor Express para webhook
+const app = express();
+app.use(express.json());
+
+// Ruta webhook
+app.post(`/bot${token}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// Ruta health para UptimeRobot
+app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/', (req, res) => res.send('Bot activo ✅'));
+
+// Configurar webhook cuando el servidor esté listo
+app.listen(PORT, () => {
+  const webhookUrl = `https://bot-suscripciones.onrender.com/bot${token}`;
+  bot.setWebHook(webhookUrl).then(() => {
+    console.log('🤖 Bot iniciado con webhook');
+    console.log(`Webhook configurado en: ${webhookUrl}`);
+  }).catch(err => {
+    console.error('Error configurando webhook:', err);
+  });
+});
+
+// === COMANDOS Y HANDLERS ===
+
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const usuarios = leerUsuarios();
@@ -57,17 +81,13 @@ bot.onText(/\/start/, (msg) => {
   const planEmoji = usuario.plan === 'premium' ? '🟣' : usuario.plan === 'mensual' ? '🔵' : '🟢';
   const totalCreadas = usuario.total_creadas || 0;
   
-  const mensaje = `¡Hola! 👋 Soy tu asistente de alertas de suscripciones.\n\n` +
-    `⚠️ Aviso Legal: Este bot es una herramienta de recordatorio personal. No realiza cobros automáticos, no cancela suscripciones y no está afiliado a las marcas mencionadas.\n\n` +
-    `📊 Tu plan actual: ${planEmoji} ${usuario.plan.toUpperCase()}\n` +
-    `📌 Suscripciones creadas: ${totalCreadas} / ${LIMITES[usuario.plan]}\n\n` +
-    `Elegí una opción:`;
+  const mensaje = `¡Hola! 👋 Soy tu asistente de alertas de suscripciones.\n\n️ Aviso Legal: Este bot es una herramienta de recordatorio personal. No realiza cobros automáticos.\n\n📊 Tu plan: ${planEmoji} ${usuario.plan.toUpperCase()}\n📌 Suscripciones: ${totalCreadas} / ${LIMITES[usuario.plan]}\n\nElegí una opción:`;
   
   bot.sendMessage(chatId, mensaje, {
     reply_markup: {
       inline_keyboard: [
         [{ text: 'ℹ️ ¿Qué hace?', callback_data: 'info_bot' }, { text: '💰 Ver Planes', callback_data: 'precios_bot' }],
-        [{ text: '➕ Agregar Suscripción', callback_data: 'agregar_menu' }, { text: '📋 Mis Suscripciones', callback_data: 'listar_menu' }]
+        [{ text: ' Agregar Suscripción', callback_data: 'agregar_menu' }, { text: '📋 Mis Suscripciones', callback_data: 'listar_menu' }]
       ]
     }
   });
@@ -81,15 +101,13 @@ bot.on('callback_query', (query) => {
     bot.sendMessage(chatId, "Es un recordatorio que te avisa 2 días antes de que te cobren tus suscripciones.\n\n✅ No pagamos nada por vos\n✅ No tenemos acceso a tus cuentas\n✅ Solo te enviamos un mensaje a Telegram");
   } 
   else if (data === 'precios_bot') {
-    bot.sendMessage(chatId, "💰 Nuestros Planes:\n\n🟢 GRATIS - $0 (1 suscripción)\n🔵 MENSUAL - $2.500 ARS/mes (Ilimitadas)\n🟣 PREMIUM - $5.000 ARS (De por vida, Ilimitadas)\n\n📲 Para activar, escribinos a @NexusAyuda");
+    bot.sendMessage(chatId, "💰 Nuestros Planes:\n\n GRATIS - $0 (1 suscripción)\n🔵 MENSUAL - $2.500 ARS/mes (Ilimitadas)\n PREMIUM - $5.000 ARS (De por vida)\n\n Para activar, escribinos a @NexusAyuda");
   }
   else if (data === 'agregar_menu') {
     const usuarios = leerUsuarios();
     const usuario = usuarios[chatId] || { plan: 'gratis', total_creadas: 0 };
-    const totalCreadas = usuario.total_creadas || 0;
-    
-    if (totalCreadas >= LIMITES[usuario.plan]) {
-      bot.sendMessage(chatId, `⚠️ Llegaste al límite de tu plan ${usuario.plan}.\n💡 Actualizá a Mensual o Premium para tener ilimitadas.`);
+    if ((usuario.total_creadas || 0) >= LIMITES[usuario.plan]) {
+      bot.sendMessage(chatId, `⚠️ Llegaste al límite de tu plan ${usuario.plan}.\n💡 Actualizá a Mensual o Premium.`);
       return;
     }
     mostrarMenuSuscripciones(chatId);
@@ -98,7 +116,7 @@ bot.on('callback_query', (query) => {
     const db = leerDB();
     const rows = db.filter(s => s.chat_id === chatId);
     if (rows.length === 0) {
-      bot.sendMessage(chatId, 'No tenés suscripciones. Usá "Agregar Suscripción".');
+      bot.sendMessage(chatId, 'No tenés suscripciones.');
     } else {
       let msg = '📋 Tus suscripciones:\n\n';
       const keyboard = [];
@@ -114,12 +132,8 @@ bot.on('callback_query', (query) => {
     const id = parseInt(data.split('_')[1]);
     let db = leerDB();
     const nueva = db.filter(s => !(s.id === id && s.chat_id === chatId));
-    if (nueva.length === db.length) {
-      bot.sendMessage(chatId, '❌ No encontrada.');
-    } else {
-      guardarDB(nueva);
-      bot.sendMessage(chatId, '✅ Eliminada. El recordatorio fue cancelado.');
-    }
+    if (nueva.length === db.length) bot.sendMessage(chatId, '❌ No encontrada.');
+    else { guardarDB(nueva); bot.sendMessage(chatId, '✅ Eliminada.'); }
   }
   else if (data.startsWith('select_')) {
     const index = parseInt(data.split('_')[1]);
@@ -128,7 +142,7 @@ bot.on('callback_query', (query) => {
     tempData.get(chatId).nombre = sub.nombre;
     tempData.get(chatId).monto = 0; 
     tempData.get(chatId).step = 'esperando_monto';
-    bot.sendMessage(chatId, `💰 ¿Cuánto pagás por ${sub.nombre}? (escribí solo el número)`);
+    bot.sendMessage(chatId, `💰 ¿Cuánto pagás por ${sub.nombre}? (solo el número)`);
   } 
   else if (data === 'custom') {
     if (!tempData.has(chatId)) tempData.set(chatId, {});
@@ -138,16 +152,12 @@ bot.on('callback_query', (query) => {
   else if (data === 'menu_principal') {
     const usuarios = leerUsuarios();
     const usuario = usuarios[chatId] || { plan: 'gratis', total_creadas: 0 };
-    const planEmoji = usuario.plan === 'premium' ? '🟣' : usuario.plan === 'mensual' ? '🔵' : '🟢';
-    const totalCreadas = usuario.total_creadas || 0;
-    
-    const mensaje = `🏠 Menú principal\n\n📊 Tu plan: ${planEmoji} ${usuario.plan.toUpperCase()}\n📌 Creadas: ${totalCreadas} / ${LIMITES[usuario.plan]}\n\nElegí una opción:`;
-    
-    bot.sendMessage(chatId, mensaje, {
+    const planEmoji = usuario.plan === 'premium' ? '🟣' : usuario.plan === 'mensual' ? '🔵' : '';
+    bot.sendMessage(chatId, ` Menú\n\n📊 Plan: ${planEmoji} ${usuario.plan.toUpperCase()}\n📌 Creadas: ${usuario.total_creadas || 0} / ${LIMITES[usuario.plan]}\n\nElegí:`, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: 'ℹ️ ¿Qué hace?', callback_data: 'info_bot' }, { text: '💰 Ver Planes', callback_data: 'precios_bot' }],
-          [{ text: '➕ Agregar Suscripción', callback_data: 'agregar_menu' }, { text: '📋 Mis Suscripciones', callback_data: 'listar_menu' }]
+          [{ text: 'ℹ️ ¿Qué hace?', callback_data: 'info_bot' }, { text: ' Ver Planes', callback_data: 'precios_bot' }],
+          [{ text: '➕ Agregar', callback_data: 'agregar_menu' }, { text: '📋 Mis Suscripciones', callback_data: 'listar_menu' }]
         ]
       }
     });
@@ -163,50 +173,36 @@ function mostrarMenuSuscripciones(chatId) {
     if (row.length === 3) { keyboard.push(row); row = []; }
   });
   if (row.length > 0) keyboard.push(row);
-  keyboard.push([{ text: '✏️ Otro (personalizado)', callback_data: 'custom' }]);
-  bot.sendMessage(chatId, '📋 Seleccioná una suscripción:', { reply_markup: { inline_keyboard: keyboard } });
+  keyboard.push([{ text: '✏️ Otro', callback_data: 'custom' }]);
+  bot.sendMessage(chatId, '📋 Seleccioná:', { reply_markup: { inline_keyboard: keyboard } });
 }
 
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   const chatId = msg.chat.id;
-  const text = msg.text.trim();
   const userData = tempData.get(chatId);
   if (!userData) return;
   
   if (userData.step === 'custom_nombre') {
-    userData.nombre = text;
+    userData.nombre = msg.text.trim();
     userData.step = 'esperando_monto';
-    bot.sendMessage(chatId, `💰 ¿Cuánto pagás por ${text}? (escribí solo el número)`);
-    return;
+    bot.sendMessage(chatId, `💰 ¿Cuánto pagás por ${userData.nombre}? (solo el número)`);
   }
-  
-  if (userData.step === 'esperando_monto') {
-    const monto = parseFloat(text);
-    if (isNaN(monto) || monto <= 0) { 
-      bot.sendMessage(chatId, '❌ Monto inválido. Escribí un número válido.'); 
-      return; 
-    }
+  else if (userData.step === 'esperando_monto') {
+    const monto = parseFloat(msg.text.trim());
+    if (isNaN(monto) || monto <= 0) { bot.sendMessage(chatId, '❌ Monto inválido.'); return; }
     userData.monto = monto;
     userData.step = 'esperando_dia';
-    bot.sendMessage(chatId, '📅 ¿Qué día del mes te cobran? (1 al 31)');
-    return;
+    bot.sendMessage(chatId, ' ¿Qué día del mes te cobran? (1 al 31)');
   }
-  
-  if (userData.step === 'esperando_dia') {
-    const dia = parseInt(text);
-    if (isNaN(dia) || dia < 1 || dia > 31) { 
-      bot.sendMessage(chatId, '❌ Día inválido. Escribí un número del 1 al 31.'); 
-      return; 
-    }
+  else if (userData.step === 'esperando_dia') {
+    const dia = parseInt(msg.text.trim());
+    if (isNaN(dia) || dia < 1 || dia > 31) { bot.sendMessage(chatId, '❌ Día inválido.'); return; }
     
     const db = leerDB();
     const nuevaSub = {
       id: db.length > 0 ? Math.max(...db.map(s => s.id)) + 1 : 1,
-      chat_id: chatId, 
-      nombre: userData.nombre, 
-      monto: userData.monto, 
-      dia_cobro: dia
+      chat_id: chatId, nombre: userData.nombre, monto: userData.monto, dia_cobro: dia
     };
     db.push(nuevaSub);
     guardarDB(db);
@@ -217,42 +213,31 @@ bot.on('message', (msg) => {
     guardarUsuarios(usuarios);
 
     const montoTexto = userData.monto > 0 ? `$${userData.monto}` : '$';
-    const mensajeExito = `✅ ¡Suscripción guardada!\n📝 Nombre: ${userData.nombre}\n💰 Monto: ${montoTexto}\n📅 Día de cobro: ${dia}\n🆔 ID: ${nuevaSub.id}\n\nTe avisaré 2 días antes.`;
-
-    bot.sendMessage(chatId, mensajeExito, {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: '➕ Agregar otra suscripción', callback_data: 'agregar_menu' }],
-                [{ text: '🏠 Menú principal', callback_data: 'menu_principal' }]
-            ]
-        }
+    bot.sendMessage(chatId, `✅ ¡Guardada!\n📝 ${userData.nombre}\n💰 ${montoTexto}\n📅 Día ${dia}\n🆔 ID: ${nuevaSub.id}`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: ' Agregar otra', callback_data: 'agregar_menu' }],
+          [{ text: '🏠 Menú', callback_data: 'menu_principal' }]
+        ]
+      }
     });
     tempData.delete(chatId);
-    return;
   }
 });
 
-// COMANDO DE ADMINISTRADOR (Activa Gratis, Mensual o Premium)
 bot.onText(/\/activar (\d+) (gratis|mensual|premium)/, (msg, match) => {
-  const chatId = msg.chat.id;
-  if (chatId !== ADMIN_ID) {
-    bot.sendMessage(chatId, '❌ No tenés permiso para usar este comando.');
-    return;
-  }
+  if (msg.chat.id !== ADMIN_ID) { bot.sendMessage(msg.chat.id, '❌ Sin permiso.'); return; }
   const userId = parseInt(match[1]);
   const plan = match[2];
   const usuarios = leerUsuarios();
   if (!usuarios[userId]) usuarios[userId] = { plan: 'gratis', total_creadas: 0 };
-  
   usuarios[userId].plan = plan;
   usuarios[userId].desde = new Date().toISOString();
   guardarUsuarios(usuarios);
-  
-  bot.sendMessage(chatId, `✅ Usuario ${userId} activado con plan ${plan.toUpperCase()}`);
-  bot.sendMessage(userId, `🎉 ¡Tu plan fue actualizado a ${plan.toUpperCase()}!`);
+  bot.sendMessage(msg.chat.id, `✅ Usuario ${userId} activado: ${plan.toUpperCase()}`);
+  bot.sendMessage(userId, `🎉 Tu plan es ahora ${plan.toUpperCase()}!`);
 });
 
-// CRON: Revisar suscripciones todos los días a las 9 AM
 cron.schedule('0 9 * * *', () => {
   console.log('Revisando suscripciones...');
   const diaActual = new Date().getDate();
@@ -261,18 +246,7 @@ cron.schedule('0 9 * * *', () => {
   const subs = db.filter(s => s.dia_cobro === diaAlerta);
   subs.forEach(s => {
     const montoTexto = s.monto > 0 ? `$${s.monto}` : '$';
-    bot.sendMessage(s.chat_id, `⚠️ ALERTA DE SUSCRIPCIÓN\n\n📝 ${s.nombre}\n💰 Monto: ${montoTexto}\n📅 Se cobra en 2 días (día ${s.dia_cobro})`);
+    bot.sendMessage(s.chat_id, `️ ALERTA\n\n📝 ${s.nombre}\n💰 ${montoTexto}\n📅 Se cobra en 2 días (día ${s.dia_cobro})`);
   });
   console.log(`Enviadas: ${subs.length}`);
 });
-
-console.log('🤖 Bot iniciado...');
-
-// Puerto para Render (no afecta el bot de Telegram)
-const PORT = process.env.PORT || 3000;
-const express = require('express');
-const app = express();
-
-app.get('/', (req, res) => res.send('Bot de suscripciones activo ✅'));
-app.get('/health', (req, res) => res.status(200).send('OK')); // Para UptimeRobot
-app.listen(PORT, () => console.log(`Servidor web corriendo en puerto ${PORT}`));
