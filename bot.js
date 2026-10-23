@@ -4,7 +4,9 @@ const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
 
-const token = process.env.TELEGRAM_BOT_TOKEN;const bot = new TelegramBot(token, { polling: true });
+const token = process.env.TELEGRAM_BOT_TOKEN;
+
+const bot = new TelegramBot(token, { polling: false });
 
 const ADMIN_ID = 8586608023;
 
@@ -352,6 +354,18 @@ bot.onText(/\/activar (.+)/, (msg, match) => {
         bot.sendMessage(msg.chat.id, `❌ No encontré al usuario ${targetId}.`);
     }
 });
+
+
+// Configuración de Webhook para Render
+const WEBHOOK_URL = process.env.RENDER_EXTERNAL_URL || `https://bot-suscripciones.onrender.com`;
+bot.setWebHook(`${WEBHOOK_URL}/bot${token}`);
+bot.onWebhookCallback('/bot' + token, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+
+
 
 console.log('🤖 Bot iniciado...');
 // Puerto para Render (no afecta el bot de Telegram)
