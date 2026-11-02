@@ -3,12 +3,10 @@ const TelegramBot = require('node-telegram-bot-api');
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
-const express = require('express');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const ADMIN_ID = 8586608023;
 
-// MODO POLLING
 const bot = new TelegramBot(token, { polling: true });
 
 const DB_PATH = path.join(__dirname, 'suscripciones.json');
@@ -41,7 +39,6 @@ const SUSCRIPCIONES_PREDEFINIDAS = [
 
 const tempData = new Map();
 
-// Comando /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const usuarios = leerUsuarios();
@@ -63,7 +60,6 @@ bot.onText(/\/start/, (msg) => {
   });
 });
 
-// Callbacks de botones
 bot.on('callback_query', (query) => {
   const chatId = query.message.chat.id;
   const data = query.data;
@@ -138,7 +134,6 @@ function mostrarMenuSuscripciones(chatId) {
   bot.sendMessage(chatId, '📋 Seleccioná:', { reply_markup: { inline_keyboard: keyboard } });
 }
 
-// Manejo de mensajes de texto
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   const chatId = msg.chat.id;
@@ -190,7 +185,6 @@ bot.on('message', (msg) => {
   }
 });
 
-// Comando de admin
 bot.onText(/\/activar (\d+) (gratis|mensual|premium)/, (msg, match) => {
   if (msg.chat.id !== ADMIN_ID) { bot.sendMessage(msg.chat.id, '❌ Sin permiso.'); return; }
   const userId = parseInt(match[1]);
@@ -204,7 +198,6 @@ bot.onText(/\/activar (\d+) (gratis|mensual|premium)/, (msg, match) => {
   bot.sendMessage(userId, `🎉 Tu plan es ahora ${plan.toUpperCase()}!`);
 });
 
-// Cron para alertas diarias
 cron.schedule('0 9 * * *', () => {
   console.log('Revisando suscripciones...');
   const diaActual = new Date().getDate();
@@ -217,11 +210,5 @@ cron.schedule('0 9 * * *', () => {
   });
   console.log(`Enviadas: ${subs.length}`);
 });
-
-// Servidor Express para UptimeRobot
-const PORT = process.env.PORT || 3000;
-const app = express();
-app.get('/health', (req, res) => res.status(200).send('OK'));
-app.listen(PORT, () => console.log(`Servidor web corriendo en puerto ${PORT}`));
 
 console.log('🤖 Bot iniciado en modo Polling...');
