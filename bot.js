@@ -212,3 +212,16 @@ cron.schedule('0 9 * * *', () => {
 });
 
 console.log('🤖 Bot iniciado en modo Polling...');
+
+// Servidor mínimo para Render
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor web en puerto ${PORT}`);
+});
