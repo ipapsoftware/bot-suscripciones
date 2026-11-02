@@ -3,6 +3,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const ADMIN_ID = 8586608023;
@@ -85,7 +86,7 @@ bot.on('callback_query', (query) => {
     if (rows.length === 0) {
       bot.sendMessage(chatId, 'No tenés suscripciones.');
     } else {
-      let msg = '📋 Tus suscripciones:\n\n';
+      let msg = ' Tus suscripciones:\n\n';
       const keyboard = [];
       rows.forEach(r => { 
         const montoTexto = r.monto > 0 ? `$${r.monto}` : '$';
@@ -173,7 +174,7 @@ bot.on('message', (msg) => {
     guardarUsuarios(usuarios);
 
     const montoTexto = userData.monto > 0 ? `$${userData.monto}` : '$';
-    bot.sendMessage(chatId, `✅ ¡Guardada!\n📝 ${userData.nombre}\n💰 ${montoTexto}\n📅 Día ${dia}\n🆔 ID: ${nuevaSub.id}`, {
+    bot.sendMessage(chatId, `✅ ¡Guardada!\n ${userData.nombre}\n💰 ${montoTexto}\n📅 Día ${dia}\n ID: ${nuevaSub.id}`, {
       reply_markup: {
         inline_keyboard: [
           [{ text: '➕ Agregar otra', callback_data: 'agregar_menu' }],
@@ -211,17 +212,11 @@ cron.schedule('0 9 * * *', () => {
   console.log(`Enviadas: ${subs.length}`);
 });
 
-console.log('🤖 Bot iniciado en modo Polling...');
-
-// Servidor mínimo para Render
-const express = require('express');
-const app = express();
+// SERVIDOR WEB PARA RENDER (requerido)
 const PORT = process.env.PORT || 3000;
-
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
-});
-
+const app = express();
+app.get('/health', (req, res) => res.status(200).send('OK'));
 app.listen(PORT, () => {
+  console.log(`🤖 Bot iniciado en modo Polling...`);
   console.log(`Servidor web en puerto ${PORT}`);
 });
